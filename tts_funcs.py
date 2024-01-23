@@ -9,7 +9,7 @@ from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.models.xtts import Xtts
 from pathlib import Path
 
-from xtts_api_server.modeldownloader import download_model,check_tts_version
+from modeldownloader import download_model,check_tts_version
 
 from loguru import logger
 from datetime import datetime

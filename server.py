@@ -15,9 +15,9 @@ from loguru import logger
 from argparse import ArgumentParser
 from pathlib import Path
 
-from xtts_api_server.tts_funcs import TTSWrapper,supported_languages,InvalidSettingsError
-from xtts_api_server.RealtimeTTS import TextToAudioStream, CoquiEngine
-from xtts_api_server.modeldownloader import check_stream2sentence_version,install_deepspeed_based_on_python_version
+from tts_funcs import TTSWrapper,supported_languages,InvalidSettingsError
+from RealtimeTTS import TextToAudioStream, CoquiEngine
+from modeldownloader import check_stream2sentence_version,install_deepspeed_based_on_python_version
 
 # Default Folders , you can change them via API
 DEVICE = os.getenv('DEVICE',"cuda")
@@ -27,7 +27,7 @@ MODEL_FOLDER = os.getenv('MODEL', 'xtts_models')
 BASE_HOST = os.getenv('BASE_URL', '127.0.0.1:8020')
 BASE_URL = os.getenv('BASE_URL', '127.0.0.1:8020')
 MODEL_SOURCE = os.getenv("MODEL_SOURCE", "local")
-MODEL_VERSION = os.getenv("MODEL_VERSION","v2.0.2")
+MODEL_VERSION = os.getenv("MODEL_VERSION","main")
 LOWVRAM_MODE = os.getenv("LOWVRAM_MODE") == 'true'
 DEEPSPEED = os.getenv("DEEPSPEED") == 'true'
 USE_CACHE = os.getenv("USE_CACHE") == 'true'

@@ -83,6 +83,10 @@ The first time you run or generate, you may need to confirm that you agree to us
 
 After configuring your environment as described in the "Installation" section, follow these steps to create an executable for the XTTSv2 FastAPI server. This process uses PyInstaller to generate the executable, with additional steps to ensure all dependencies are included.
 
+## Note on Potential Crashes
+
+During the build process, you may encounter crashes or errors. These are often due to environmental issues or missing dependencies. If this happens, retrying the build process can often resolve these issues and eventually produce a usable executable.
+
 ## Install PyInstaller
 
 1. With your environment activated, install PyInstaller by running:

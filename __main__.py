@@ -1,4 +1,3 @@
-import pyinstaller_guide_hook
 import uvicorn
 from argparse import ArgumentParser
 import os

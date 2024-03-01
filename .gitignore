@@ -8,6 +8,7 @@ xtts_api_server/models
 *.pyc
 xtts_api_server/RealtimeTTS/engines/coqui_engine_old.py
 xtts_models
+<<<<<<< Updated upstream
 example/
 docker/
 .github/
@@ -20,3 +21,7 @@ xtts_api_server/.vs/
 .gitignore
 plugins/
 .vs/
+=======
+xtts_models2
+MantellaEnv
+>>>>>>> Stashed changes

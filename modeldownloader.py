@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 import requests
+import certifi
 
 import importlib.metadata as metadata  # Use importlib.metadata
 from pathlib import Path
@@ -9,7 +10,6 @@ from tqdm import tqdm
 
 from packaging import version
 from loguru import logger
-
 
 def create_directory_if_not_exists(directory):
     if not directory.exists():
@@ -121,7 +121,6 @@ def download_model(this_dir,model_version):
     # Define paths
     base_path = this_dir
     model_path = base_path / f'{model_version}'
-
     # Define files and their corresponding URLs
     files_to_download = {
          "config.json": f"https://huggingface.co/coqui/XTTS-v2/raw/{model_version}/config.json",

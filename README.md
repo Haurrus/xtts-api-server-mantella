@@ -14,6 +14,8 @@ Or my work to train in batch using only the command line : [xtts-trainer-no-ui-a
 
 ## Installation
 
+This project was built using Python 3.11.7 and leverages CUDA 11.8 for GPU acceleration.
+
 ### Manual
 ```bash
 # Clone REPO

@@ -2,14 +2,13 @@
 
 import torch
 import torchaudio
-import torchaudio.transforms as T
 from TTS.api import TTS
 
 from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.models.xtts import Xtts
 from pathlib import Path
 
-from modeldownloader import download_model,check_tts_version
+from modeldownloader import download_model
 
 from loguru import logger
 from datetime import datetime
@@ -63,7 +62,7 @@ official_model_list_v2 = ["2.0.0","2.0.1","2.0.2","2.0.3"]
 reversed_supported_languages = {name: code for code, name in supported_languages.items()}
 
 class TTSWrapper:
-    def __init__(self,output_folder = "./output", speaker_folder="./speakers",model_folder="./xtts_folder",lowvram = False,model_source = "local",model_version = "2.0.2",device = "cuda",deepspeed = False,enable_cache_results = True):
+    def __init__(self,output_folder = "./output", speaker_folder="./speakers",latent_speaker_folder = "./latent_speakers",model_folder="./xtts_folder",lowvram = False,model_source = "local",model_version = "2.0.2",device = "cuda",deepspeed = False,enable_cache_results = True):
 
         self.cuda = device # If the user has chosen what to use, we rewrite the value to the value we want to use
         self.device = 'cpu' if lowvram else (self.cuda if torch.cuda.is_available() else "cpu")
@@ -81,14 +80,16 @@ class TTSWrapper:
         self.speaker_folder = speaker_folder
         self.output_folder = output_folder
         self.model_folder = model_folder
+        self.latent_speaker_folder = latent_speaker_folder
 
         self.create_directories()
-        check_tts_version()
 
         self.enable_cache_results = enable_cache_results
         self.cache_file_path = os.path.join(output_folder, "cache.json")
 
         self.is_official_model = True
+        
+        self.current_model = None
         
         if self.enable_cache_results:
             # Reset the contents of the cache file at each initialization.
@@ -185,6 +186,7 @@ class TTSWrapper:
            is_official_model = False
  
            self.load_local_model(load = is_official_model)
+           self.load_all_latents()
            if self.lowvram == False:
              # Due to the fact that we create latents on the cpu and load them from the cuda we get an error
              logger.info("Pre-create latents for all current speakers")
@@ -256,25 +258,55 @@ class TTSWrapper:
 
     # SPEAKER FUNCS
     def get_or_create_latents(self, speaker_name, speaker_wav):
+        speaker_name = speaker_name.lower()
         if speaker_name not in self.latents_cache:
-            logger.info(f"creating latents for {speaker_name}: {speaker_wav}")
+            logger.info(f"Creating latents for {speaker_name}: {speaker_wav}")
             gpt_cond_latent, speaker_embedding = self.model.get_conditioning_latents(speaker_wav)
             self.latents_cache[speaker_name] = (gpt_cond_latent, speaker_embedding)
+            self.save_latents_to_json(speaker_name)
         return self.latents_cache[speaker_name]
-
 
     def create_latents_for_all(self):
         speakers_list = self._get_speakers()
 
         for speaker in speakers_list:
             self.get_or_create_latents(speaker['speaker_name'],speaker['speaker_wav'])
-
         logger.info(f"Latents created for all {len(speakers_list)} speakers.")
-        #logger.info(f"Latents created for all {self.latents_cache} speakers !!!!!")
+ 
+    def save_latents_to_json(self, speaker_name):
+        # Define the file path
+        file_path = os.path.join(self.latent_speaker_folder, f"{speaker_name}.json")
+        # Prepare the data to save; ensure it is serializable
+        data_to_save = {
+            "gpt_cond_latent": self.latents_cache[speaker_name][0].tolist(),
+            "speaker_embedding": self.latents_cache[speaker_name][1].tolist()
+        }
+        # Write the data to a JSON file
+        with open(file_path, 'w') as json_file:
+            json.dump(data_to_save, json_file)
+        logger.info(f"Latents for {speaker_name} saved to {file_path}") 
+ 
+    def load_latents_from_json(self, file_path):
+        with open(file_path, 'r') as json_file:
+            data = json.load(json_file)
+        gpt_cond_latent = torch.tensor(data['gpt_cond_latent'], device='cuda:0')
+        speaker_embedding = torch.tensor(data['speaker_embedding'], device='cuda:0')
+        return gpt_cond_latent, speaker_embedding
+
+    def load_all_latents(self):
+        # Iterate over all json files in the latent speaker folder
+        for file_name in os.listdir(self.latent_speaker_folder):
+            if file_name.endswith('.json'):
+                file_path = os.path.join(self.latent_speaker_folder, file_name)
+                speaker_name = file_name[:-5]  # Remove '.json' to get the speaker name
+                gpt_cond_latent, speaker_embedding = self.load_latents_from_json(file_path)
+                self.latents_cache[speaker_name] = (gpt_cond_latent, speaker_embedding)
+        
+        logger.info(f"Loaded latents for {len(self.latents_cache)} speakers.")
 
     # DIRICTORIES FUNCS
     def create_directories(self):
-        directories = [self.output_folder, self.speaker_folder,self.model_folder]
+        directories = [self.output_folder, self.speaker_folder,self.model_folder, self.latent_speaker_folder]
 
         for sanctuary in directories:
             # List of folders to be checked for existence
@@ -453,7 +485,7 @@ class TTSWrapper:
         text = re.sub(r'"\s?(.*?)\s?"', r"'\1'", text)
         return text
 
-    async def stream_generation(self, text, speaker_name, speaker_wav, language, output_file):
+    async def stream_generation(self,text,speaker_name,speaker_wav,language,output_file):
         # Log time
         generate_start_time = time.time()  # Record the start time of loading the model
 
@@ -465,24 +497,19 @@ class TTSWrapper:
             language,
             speaker_embedding=speaker_embedding,
             gpt_cond_latent=gpt_cond_latent,
-            **self.tts_settings,  # Expands the object with the settings and applies them for generation
+            **self.tts_settings, # Expands the object with the settings and applies them for generation
             stream_chunk_size=self.stream_chunk_size,
         )
-
+        
         for chunk in chunks:
             if isinstance(chunk, list):
                 chunk = torch.cat(chunk, dim=0)
             file_chunks.append(chunk)
-
-            # Convert chunk to tensor and process similarly to local_generation
-            audio_tensor = chunk.unsqueeze(0)
-            # Assuming the original frequency is 24000, if it's different, update accordingly
-            audio_16bit = T.Resample(orig_freq=24000, new_freq=24000, resampling_method='sinc_interpolation').to(audio_tensor.dtype)(audio_tensor)
-            audio_16bit = torch.clamp(audio_16bit, -1.0, 1.0)
-            audio_16bit = (audio_16bit * 32767).to(torch.int16)
-
-            # Convert to bytes and yield
-            yield audio_16bit.squeeze().cpu().numpy().tobytes()
+            chunk = chunk.cpu().numpy()
+            chunk = chunk[None, : int(chunk.shape[0])]
+            chunk = np.clip(chunk, -1, 1)
+            chunk = (chunk * 32767).astype(np.int16)
+            yield chunk.tobytes()
 
         if len(file_chunks) > 0:
             wav = torch.cat(file_chunks, dim=0)
@@ -495,32 +522,25 @@ class TTSWrapper:
 
         logger.info(f"Processing time: {generate_elapsed_time:.2f} seconds.")
 
-
-    def local_generation(self, text, speaker_name, speaker_wav, language, output_file):
-        # Existing code for TTS generation
-        generate_start_time = time.time()
+    def local_generation(self,text,speaker_name,speaker_wav,language,output_file):
+        # Log time
+        generate_start_time = time.time()  # Record the start time of loading the model
 
         gpt_cond_latent, speaker_embedding = self.get_or_create_latents(speaker_name, speaker_wav)
-        #logger.info(f"Latents created for all {self.latents_cache} speakers !!!!!")
+
         out = self.model.inference(
             text,
             language,
             gpt_cond_latent=gpt_cond_latent,
             speaker_embedding=speaker_embedding,
-            **self.tts_settings,
+            **self.tts_settings, # Expands the object with the settings and applies them for generation
         )
 
-        # Convert audio to 16-bit depth
-        audio_tensor = torch.tensor(out["wav"]).unsqueeze(0)
-        audio_16bit = T.Resample(orig_freq=24000, new_freq=24000, resampling_method='sinc_interpolation').to(audio_tensor.dtype)(audio_tensor)
-        audio_16bit = torch.clamp(audio_16bit, -1.0, 1.0)
-        audio_16bit = (audio_16bit * 32767).to(torch.int16)
+        torchaudio.save(output_file, torch.tensor(out["wav"]).unsqueeze(0), 24000)
 
-        # Save the audio file
-        torchaudio.save(output_file, audio_16bit, 24000)
-
-        generate_end_time = time.time()
+        generate_end_time = time.time()  # Record the time to generate TTS
         generate_elapsed_time = generate_end_time - generate_start_time
+
         logger.info(f"Processing time: {generate_elapsed_time:.2f} seconds.")
 
     def api_generation(self,text,speaker_wav,language,output_file):
@@ -562,21 +582,33 @@ class TTSWrapper:
     def process_tts_to_file(self, text, speaker_name_or_path, language, file_name_or_path="out.wav", stream=False):
         if file_name_or_path == '' or file_name_or_path is None:
             file_name_or_path = "out.wav"
-            
         try:
-            # Check speaker_name_or_path in models_folder and speakers_folder
-            if speaker_name_or_path:
+            # Normalize speaker name
+            speaker_name = speaker_name_or_path.lower()
+            # Path for JSON file in latent speaker folder
+            speaker_json_path = Path(self.latent_speaker_folder) / f"{speaker_name}.json"
+
+            # Check if the speaker's JSON exists in the latent speaker folder
+            if speaker_json_path.exists():
+                # Load latent directly without needing a .wav file
+                speaker_wav = "out.wav"
+                logger.info(f"Using latents from JSON for {speaker_name}")
+            else:
+                # Check speaker_name_or_path in models_folder and speakers_folder
                 speaker_path_models_folder = Path(self.model_folder) / speaker_name_or_path
                 speaker_path_speakers_folder = Path(self.speaker_folder) / speaker_name_or_path
-
-                if speaker_path_models_folder.is_dir():
-                    reference_wav = speaker_path_models_folder / "reference.wav"
-                    if not reference_wav.exists():
-                        raise ValueError(f"No 'reference.wav' found in {speaker_path_models_folder}")
-                    speaker_wav = str(reference_wav)
-                elif speaker_path_speakers_folder.is_dir():
+                speaker_path_speakers_file = speaker_path_speakers_folder.with_suffix('.wav')
+            
+                # Check if the .wav file exists or if the directory exists for the speaker
+                if speaker_path_speakers_folder.is_dir() or speaker_path_speakers_file.exists():
                     speaker_wav = self.get_speaker_wav(speaker_name_or_path)
-                elif not speaker_path_speakers_folder.is_dir():
+                elif speaker_path_models_folder.is_dir():
+                    reference_wav = speaker_path_models_folder / "reference.wav"
+                    if reference_wav.exists():
+                        speaker_wav = str(reference_wav)
+                    else:
+                        logger.info(f"No 'reference.wav' found in {speaker_path_models_folder}")
+                else:
                     raise ValueError(f"Speaker path '{speaker_name_or_path}' not found in speakers or models folder.")
             # Determine output path based on whether a full path or a file name was provided
             if os.path.isabs(file_name_or_path):
@@ -642,7 +674,3 @@ class TTSWrapper:
         except Exception as e:
             raise e  # Propagate exceptions for endpoint handling.
 
-
-
-
-        

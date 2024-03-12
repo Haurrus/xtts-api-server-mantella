@@ -1,5 +1,5 @@
 from TTS.api import TTS
-from fastapi import FastAPI, HTTPException, Request, Query
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse,StreamingResponse
 
@@ -14,20 +14,21 @@ import shutil
 from loguru import logger
 from argparse import ArgumentParser
 from pathlib import Path
+from uuid import uuid4
 
 from tts_funcs import TTSWrapper,supported_languages,InvalidSettingsError
 from RealtimeTTS import TextToAudioStream, CoquiEngine
-from modeldownloader import check_stream2sentence_version,install_deepspeed_based_on_python_version
 
 # Default Folders , you can change them via API
 DEVICE = os.getenv('DEVICE',"cuda")
 OUTPUT_FOLDER = os.getenv('OUTPUT', 'output')
 SPEAKER_FOLDER = os.getenv('SPEAKER', 'speakers')
+LATENT_SPEAKER_FOLDER = os.getenv('LATENT_SPEAKER','latent_speaker_folder')
 MODEL_FOLDER = os.getenv('MODEL', 'xtts_models')
 BASE_HOST = os.getenv('BASE_URL', '127.0.0.1:8020')
 BASE_URL = os.getenv('BASE_URL', '127.0.0.1:8020')
 MODEL_SOURCE = os.getenv("MODEL_SOURCE", "local")
-MODEL_VERSION = os.getenv("MODEL_VERSION","main")
+MODEL_VERSION = os.getenv("MODEL_VERSION","v2.0.2")
 LOWVRAM_MODE = os.getenv("LOWVRAM_MODE") == 'true'
 DEEPSPEED = os.getenv("DEEPSPEED") == 'true'
 USE_CACHE = os.getenv("USE_CACHE") == 'true'
@@ -37,12 +38,9 @@ STREAM_MODE = os.getenv("STREAM_MODE") == 'true'
 STREAM_MODE_IMPROVE = os.getenv("STREAM_MODE_IMPROVE") == 'true'
 STREAM_PLAY_SYNC = os.getenv("STREAM_PLAY_SYNC") == 'true'
 
-if(DEEPSPEED):
-  install_deepspeed_based_on_python_version()
-
 # Create an instance of the TTSWrapper class and server
 app = FastAPI()
-XTTS = TTSWrapper(OUTPUT_FOLDER,SPEAKER_FOLDER,MODEL_FOLDER,LOWVRAM_MODE,MODEL_SOURCE,MODEL_VERSION,DEVICE,DEEPSPEED,USE_CACHE)
+XTTS = TTSWrapper(OUTPUT_FOLDER,SPEAKER_FOLDER,LATENT_SPEAKER_FOLDER,MODEL_FOLDER,LOWVRAM_MODE,MODEL_SOURCE,MODEL_VERSION,DEVICE,DEEPSPEED,USE_CACHE)
 
 # Check for old format model version
 XTTS.model_version = XTTS.check_model_version_old_format(MODEL_VERSION)
@@ -58,7 +56,6 @@ else:
 # Load model
 if STREAM_MODE or STREAM_MODE_IMPROVE:
     # Load model for Streaming
-    check_stream2sentence_version()
 
     logger.warning("'Streaming Mode' has certain limitations, you can read about them here https://github.com/daswer123/xtts-api-server#about-streaming-mode")
 
@@ -182,6 +179,10 @@ def get_tts_settings():
 
 @app.get("/sample/{file_name:path}")
 def get_sample(file_name: str):
+    # A fix for path traversal vulenerability. 
+    # An attacker may summon this endpoint with ../../etc/passwd and recover the password file of your PC (in linux) or access any other file on the PC
+    if ".." in file_name:
+        raise HTTPException(status_code=404, detail=".. in the file name! Are you kidding me?") 
     file_path = os.path.join(XTTS.speaker_folder, file_name)
     if os.path.isfile(file_path):
         return FileResponse(file_path, media_type="audio/wav")
@@ -232,7 +233,7 @@ async def tts_stream(request: TTSStreamRequest):
         raise HTTPException(status_code=400,
                             detail="HTTP Streaming is only supported for local models.")
     # Validate language code against supported languages.
-    if language.lower() not in supported_languages:
+    if request.language.lower() not in supported_languages:
         raise HTTPException(status_code=400,
                             detail="Language code sent is either unsupported or misspelled.")
             
@@ -255,7 +256,7 @@ async def tts_stream(request: TTSStreamRequest):
     return StreamingResponse(generator(), media_type='audio/x-wav')
 
 @app.post("/tts_to_audio/")
-async def tts_to_audio(request: SynthesisRequest):
+async def tts_to_audio(request: SynthesisRequest, background_tasks: BackgroundTasks):
     if STREAM_MODE or STREAM_MODE_IMPROVE:
         try:
             global stream
@@ -306,7 +307,10 @@ async def tts_to_audio(request: SynthesisRequest):
                 language=request.language.lower(),
                 file_name_or_path=request.save_path
             )
-
+            
+            if not XTTS.enable_cache_results:
+                background_tasks.add_task(os.unlink, output_file_path)
+                
             # Return the file in the response
             return FileResponse(
                 path=output_file_path,

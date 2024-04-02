@@ -257,34 +257,83 @@ class TTSWrapper:
                 torch.cuda.empty_cache()
 
     # SPEAKER FUNCS
-    def get_or_create_latents(self, speaker_name, speaker_wav):
+    def get_or_create_latents(self, speaker_name, speaker_wav, language_code):
         speaker_name = speaker_name.lower()
-        if speaker_name not in self.latents_cache:
-            logger.info(f"Creating latents for {speaker_name}: {speaker_wav}")
+        # Append the language code to the speaker name for differentiation
+        speaker_key = f"{speaker_name}_{language_code}"
+        if speaker_key not in self.latents_cache:
+            logger.info(f"Creating latents for {speaker_name} in {language_code}: {speaker_wav}")
             gpt_cond_latent, speaker_embedding = self.model.get_conditioning_latents(speaker_wav)
-            self.latents_cache[speaker_name] = (gpt_cond_latent, speaker_embedding)
-            self.save_latents_to_json(speaker_name)
-        return self.latents_cache[speaker_name]
+            self.latents_cache[speaker_key] = (gpt_cond_latent, speaker_embedding)
+            # Pass the language code to the save method
+            self.save_latents_to_json(speaker_name, language_code)
+        return self.latents_cache[speaker_key]
+
 
     def create_latents_for_all(self):
-        speakers_list = self._get_speakers()
+        # Iterate over each language subdirectory in the speaker folder
+        total_new_latents = 0
+        total_existing_latents = 0
 
-        for speaker in speakers_list:
-            self.get_or_create_latents(speaker['speaker_name'],speaker['speaker_wav'])
-        logger.info(f"Latents created for all {len(speakers_list)} speakers.")
- 
-    def save_latents_to_json(self, speaker_name):
-        # Define the file path
-        file_path = os.path.join(self.latent_speaker_folder, f"{speaker_name}.json")
-        # Prepare the data to save; ensure it is serializable
-        data_to_save = {
-            "gpt_cond_latent": self.latents_cache[speaker_name][0].tolist(),
-            "speaker_embedding": self.latents_cache[speaker_name][1].tolist()
-        }
-        # Write the data to a JSON file
-        with open(file_path, 'w') as json_file:
-            json.dump(data_to_save, json_file)
-        logger.info(f"Latents for {speaker_name} saved to {file_path}") 
+        for language_code in os.listdir(self.speaker_folder):
+            language_path = os.path.join(self.speaker_folder, language_code)
+            if os.path.isdir(language_path):
+                speakers_list = self._get_speakers(language_path)
+                
+                new_latents_count = 0
+                existing_latents_count = 0
+
+                for speaker in speakers_list:
+                    speaker_key = f"{speaker['speaker_name'].lower()}_{language_code}"
+                    # Check if the latent JSON already exists
+                    latent_json_path = os.path.join(self.latent_speaker_folder, language_code, f"{speaker['speaker_name']}.json")
+                    if os.path.exists(latent_json_path):
+                        # Increment existing latents counter if the file exists
+                        existing_latents_count += 1
+                    else:
+                        # Otherwise, create the latent and increment new latents counter
+                        self.get_or_create_latents(speaker['speaker_name'], speaker['speaker_wav'], language_code)
+                        new_latents_count += 1
+                
+                total_new_latents += new_latents_count
+                total_existing_latents += existing_latents_count
+
+                # Report based on whether new latent JSON files were created
+                if new_latents_count > 0:
+                    logger.info(f"Latents created for all {new_latents_count} new speakers in {language_code}.")
+                if existing_latents_count > 0:
+                    logger.info(f"Latent JSON already existing for {existing_latents_count} speakers in {language_code}.")
+
+        # Optionally, provide a summary of actions taken across all languages
+        logger.info(f"Total new latents created across all languages: {total_new_latents}")
+        logger.info(f"Total existing latents found across all languages: {total_existing_latents}")
+
+    def save_latents_to_json(self, speaker_name, language_code):
+        # Generate the combined key as used in get_or_create_latents
+        speaker_key = f"{speaker_name}_{language_code}"
+        
+        # Ensure accessing the correct key in latents_cache
+        if speaker_key in self.latents_cache:
+            # Create a subdirectory for the language if it doesn't exist
+            language_folder = os.path.join(self.latent_speaker_folder, language_code)
+            if not os.path.exists(language_folder):
+                os.makedirs(language_folder)
+            
+            # Define the file path within the language-specific folder
+            file_path = os.path.join(language_folder, f"{speaker_name}.json")
+            
+            # Access the latents using the combined speaker_key
+            data_to_save = {
+                "gpt_cond_latent": self.latents_cache[speaker_key][0].tolist(),
+                "speaker_embedding": self.latents_cache[speaker_key][1].tolist()
+            }
+            with open(file_path, 'w') as json_file:
+                json.dump(data_to_save, json_file)
+            logger.info(f"Latents for {speaker_name} in {language_code} saved to {file_path}")
+        else:
+            logger.error(f"Latents for {speaker_key} not found in cache.")
+
+
  
     def load_latents_from_json(self, file_path):
         with open(file_path, 'r') as json_file:
@@ -294,28 +343,52 @@ class TTSWrapper:
         return gpt_cond_latent, speaker_embedding
 
     def load_all_latents(self):
-        # Iterate over all json files in the latent speaker folder
-        for file_name in os.listdir(self.latent_speaker_folder):
-            if file_name.endswith('.json'):
-                file_path = os.path.join(self.latent_speaker_folder, file_name)
-                speaker_name = file_name[:-5]  # Remove '.json' to get the speaker name
-                gpt_cond_latent, speaker_embedding = self.load_latents_from_json(file_path)
-                self.latents_cache[speaker_name] = (gpt_cond_latent, speaker_embedding)
-        
-        logger.info(f"Loaded latents for {len(self.latents_cache)} speakers.")
+        # Total count for logging purposes
+        total_latents_loaded = 0
+
+        # Iterate over all language subdirectories in the latent speaker folder
+        for language_code in os.listdir(self.latent_speaker_folder):
+            language_path = os.path.join(self.latent_speaker_folder, language_code)
+            if os.path.isdir(language_path):
+                # Initialize counter for the current language
+                current_language_latents_count = 0
+
+                # Load all json files within this language subfolder
+                for file_name in os.listdir(language_path):
+                    if file_name.endswith('.json'):
+                        speaker_name = file_name[:-5]  # Remove '.json' to get the speaker name
+                        speaker_key = f"{speaker_name}_{language_code}"
+                        file_path = os.path.join(language_path, file_name)
+                        gpt_cond_latent, speaker_embedding = self.load_latents_from_json(file_path)
+                        self.latents_cache[speaker_key] = (gpt_cond_latent, speaker_embedding)
+                        current_language_latents_count += 1
+
+                # Log the count of loaded latents for the current language
+                logger.info(f"Loaded latents for {current_language_latents_count} speakers in '{language_code}' subfolder.")
+                total_latents_loaded += current_language_latents_count
+
+        # Optionally, log the total count of latents loaded across all languages
+        logger.info(f"Total latents loaded across all languages: {total_latents_loaded}")
 
     # DIRICTORIES FUNCS
     def create_directories(self):
-        directories = [self.output_folder, self.speaker_folder,self.model_folder, self.latent_speaker_folder]
+        # Base directories to be checked for existence
+        base_directories = [self.output_folder, self.model_folder]
 
-        for sanctuary in directories:
-            # List of folders to be checked for existence
-            absolute_path = os.path.abspath(os.path.normpath(sanctuary))
-
+        # Creating base directories if they do not exist
+        for directory in base_directories:
+            absolute_path = os.path.abspath(os.path.normpath(directory))
             if not os.path.exists(absolute_path):
-                # If the folder does not exist, create it
                 os.makedirs(absolute_path)
                 logger.info(f"Folder in the path {absolute_path} has been created")
+
+        # Creating language subdirectories within speaker_folder and latent_speaker_folder
+        for language_code in supported_languages.keys():
+            for folder in [self.speaker_folder, self.latent_speaker_folder]:
+                language_path = os.path.join(folder, language_code)
+                if not os.path.exists(language_path):
+                    os.makedirs(language_path)
+                    logger.info(f"Language subfolder '{language_code}' in path {language_path} has been created")
 
     def set_speaker_folder(self, folder):
         if os.path.exists(folder) and os.path.isdir(folder):
@@ -391,26 +464,29 @@ class TTSWrapper:
         return wav_files
 
 
-    def _get_speakers(self):
+    def _get_speakers(self, path=None):
         """
-        Gets info on all the speakers.
+        Gets info on all the speakers from the given path or the default speaker folder.
 
-        Returns a list of {speaker_name,speaker_wav,preview} dicts
+        Returns a list of {speaker_name, speaker_wav, preview} dicts.
         """
+        if path is None:
+            path = self.speaker_folder
+
         speakers = []
-        for f in os.listdir(self.speaker_folder):
-            full_path = os.path.join(self.speaker_folder,f)
+        for f in os.listdir(path):
+            full_path = os.path.join(path, f)
             if os.path.isdir(full_path):
-                # multi-sample voice
-                subdir_files = self.get_wav_files(full_path) 
+                # Multi-sample voice
+                subdir_files = self.get_wav_files(full_path)
                 if len(subdir_files) == 0:
-                    # no wav files in directory
+                    # No WAV files in directory
                     continue
 
                 speaker_name = f
-                speaker_wav = [os.path.join(self.speaker_folder,f,s) for s in subdir_files]
-                # use the first file found as the preview
-                preview = os.path.join(f,subdir_files[0])
+                speaker_wav = [os.path.join(path, f, s) for s in subdir_files]
+                # Use the first file found as the preview
+                preview = os.path.join(f, subdir_files[0])
                 speakers.append({
                         'speaker_name': speaker_name,
                         'speaker_wav': speaker_wav,
@@ -419,7 +495,7 @@ class TTSWrapper:
 
             elif f.endswith('.wav'):
                 speaker_name = os.path.splitext(f)[0]
-                speaker_wav = full_path 
+                speaker_wav = full_path
                 preview = f
                 speakers.append({
                         'speaker_name': speaker_name,
@@ -489,7 +565,7 @@ class TTSWrapper:
         # Log time
         generate_start_time = time.time()  # Record the start time of loading the model
 
-        gpt_cond_latent, speaker_embedding = self.get_or_create_latents(speaker_name, speaker_wav)
+        gpt_cond_latent, speaker_embedding = self.get_or_create_latents(speaker_name, speaker_wav,language)
         file_chunks = []
 
         chunks = self.model.inference_stream(
@@ -526,7 +602,7 @@ class TTSWrapper:
         # Log time
         generate_start_time = time.time()  # Record the start time of loading the model
 
-        gpt_cond_latent, speaker_embedding = self.get_or_create_latents(speaker_name, speaker_wav)
+        gpt_cond_latent, speaker_embedding = self.get_or_create_latents(speaker_name, speaker_wav,language)
 
         out = self.model.inference(
             text,
@@ -551,48 +627,41 @@ class TTSWrapper:
                 file_path=output_file,
         )
 
-    def get_speaker_wav(self, speaker_name_or_path):
-        """ Gets the speaker_wav(s) for a given speaker name. """
+    def get_speaker_wav(self, speaker_name_or_path, language_code):
+        """Gets the speaker_wav(s) for a given speaker name considering the language."""
+        base_path = os.path.join(self.speaker_folder, language_code)  # Adjust the path to include the language code
+
         if speaker_name_or_path.endswith('.wav'):
-            # it's a file name
-            if os.path.isabs(speaker_name_or_path):
-                # absolute path; nothing to do
-                speaker_wav = speaker_name_or_path
-            else:
-                # make it a full path
-                speaker_wav = os.path.join(self.speaker_folder, speaker_name_or_path)
+            # If it's a file name
+            speaker_wav = os.path.join(base_path, speaker_name_or_path)  # Adjust to look inside the language-specific folder
         else:
-            # it's a speaker name
-            full_path = os.path.join(self.speaker_folder, speaker_name_or_path) 
-            wav_file = f"{full_path}.wav"
-            if os.path.isdir(full_path):
-                # multi-sample speaker
-                speaker_wav = [ os.path.join(full_path,wav) for wav in self.get_wav_files(full_path) ]
-                if len(speaker_wav) == 0:
-                    raise ValueError(f"no wav files found in {full_path}")
-            elif os.path.isfile(wav_file):
-                speaker_wav = wav_file
-            else:
-                raise ValueError(f"Speaker {speaker_name_or_path} not found.")
+            # If it's a speaker name
+            full_path = os.path.join(base_path, speaker_name_or_path)
+            wav_files = [os.path.join(full_path, f) for f in os.listdir(full_path) if f.endswith('.wav')]
+            if not wav_files:
+                raise ValueError(f"Speaker {speaker_name_or_path} not found in language folder '{language_code}'.")
+            speaker_wav = wav_files if len(wav_files) > 1 else wav_files[0]
 
         return speaker_wav
-
 
     # MAIN FUNC
     def process_tts_to_file(self, text, speaker_name_or_path, language, file_name_or_path="out.wav", stream=False):
         if file_name_or_path == '' or file_name_or_path is None:
             file_name_or_path = "out.wav"
         try:
-            # Normalize speaker name
+            # Normalize speaker name and ensure language code is in lower case for consistency
             speaker_name = speaker_name_or_path.lower()
-            # Path for JSON file in latent speaker folder
-            speaker_json_path = Path(self.latent_speaker_folder) / f"{speaker_name}.json"
+            language_code = language.lower()
 
-            # Check if the speaker's JSON exists in the latent speaker folder
+            # Adjusted path for JSON file in the latent speaker folder to include language
+            speaker_json_directory = Path(self.latent_speaker_folder) / language_code
+            speaker_json_path = speaker_json_directory / f"{speaker_name}.json"
+
+            # Check if the speaker's JSON exists in the latent speaker folder within the specific language subdirectory
             if speaker_json_path.exists():
                 # Load latent directly without needing a .wav file
                 speaker_wav = "out.wav"
-                logger.info(f"Using latents from JSON for {speaker_name}")
+                logger.info(f"Using latents from JSON for {speaker_name} in {language_code}")
             else:
                 # Check speaker_name_or_path in models_folder and speakers_folder
                 speaker_path_models_folder = Path(self.model_folder) / speaker_name_or_path
@@ -601,7 +670,7 @@ class TTSWrapper:
             
                 # Check if the .wav file exists or if the directory exists for the speaker
                 if speaker_path_speakers_folder.is_dir() or speaker_path_speakers_file.exists():
-                    speaker_wav = self.get_speaker_wav(speaker_name_or_path)
+                    speaker_wav = self.get_speaker_wav(speaker_name_or_path, language)
                 elif speaker_path_models_folder.is_dir():
                     reference_wav = speaker_path_models_folder / "reference.wav"
                     if reference_wav.exists():

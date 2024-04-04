@@ -334,13 +334,14 @@ class TTSWrapper:
             logger.error(f"Latents for {speaker_key} not found in cache.")
 
 
- 
     def load_latents_from_json(self, file_path):
         with open(file_path, 'r') as json_file:
             data = json.load(json_file)
-        gpt_cond_latent = torch.tensor(data['gpt_cond_latent'], device='cuda:0')
-        speaker_embedding = torch.tensor(data['speaker_embedding'], device='cuda:0')
+        # Use the class's device setting for tensor allocation
+        gpt_cond_latent = torch.tensor(data['gpt_cond_latent'], device=self.device)
+        speaker_embedding = torch.tensor(data['speaker_embedding'], device=self.device)
         return gpt_cond_latent, speaker_embedding
+
 
     def load_all_latents(self):
         # Total count for logging purposes

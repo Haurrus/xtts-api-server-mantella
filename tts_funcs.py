@@ -110,8 +110,8 @@ class TTSWrapper:
         # Fetch all entries in the directory given by self.model_folder
         entries = os.listdir(self.model_folder)
         
-        # Filter out and return only directories
-        return [name for name in entries if os.path.isdir(os.path.join(self.model_folder, name))]
+        # Filter out and return only directories, converted to lowercase without spaces
+        return [name.lower().replace(' ', '') for name in entries if os.path.isdir(os.path.join(self.model_folder, name))]
         
 
     def get_wav_header(self, channels:int=1, sample_rate:int=24000, width:int=2) -> bytes:

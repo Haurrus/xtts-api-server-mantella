@@ -8,7 +8,7 @@ from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.models.xtts import Xtts
 from pathlib import Path
 
-from xtts_api_server.modeldownloader import download_model,check_tts_version
+from modeldownloader import download_model
 
 from loguru import logger
 from datetime import datetime
@@ -82,8 +82,6 @@ class TTSWrapper:
         self.latent_speaker_folder = latent_speaker_folder
 
         self.create_directories()
-        check_tts_version()
-
         self.enable_cache_results = enable_cache_results
         self.cache_file_path = os.path.join(output_folder, "cache.json")
 

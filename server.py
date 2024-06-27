@@ -16,9 +16,8 @@ from argparse import ArgumentParser
 from pathlib import Path
 from uuid import uuid4
 
-from xtts_api_server.tts_funcs import TTSWrapper,supported_languages,InvalidSettingsError
-from xtts_api_server.RealtimeTTS import TextToAudioStream, CoquiEngine
-from xtts_api_server.modeldownloader import check_stream2sentence_version,install_deepspeed_based_on_python_version
+from tts_funcs import TTSWrapper,supported_languages,InvalidSettingsError
+from RealtimeTTS import TextToAudioStream, CoquiEngine
 
 # Default Folders , you can change them via API
 DEVICE = os.getenv('DEVICE',"cuda")
@@ -38,9 +37,6 @@ USE_CACHE = os.getenv("USE_CACHE") == 'true'
 STREAM_MODE = os.getenv("STREAM_MODE") == 'true'
 STREAM_MODE_IMPROVE = os.getenv("STREAM_MODE_IMPROVE") == 'true'
 STREAM_PLAY_SYNC = os.getenv("STREAM_PLAY_SYNC") == 'true'
-
-if(DEEPSPEED):
-  install_deepspeed_based_on_python_version()
 
 # Create an instance of the TTSWrapper class and server
 app = FastAPI()

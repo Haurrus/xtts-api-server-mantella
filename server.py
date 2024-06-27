@@ -56,7 +56,6 @@ else:
 # Load model
 if STREAM_MODE or STREAM_MODE_IMPROVE:
     # Load model for Streaming
-    check_stream2sentence_version()
 
     logger.warning("'Streaming Mode' has certain limitations, you can read about them here https://github.com/daswer123/xtts-api-server#about-streaming-mode")
 

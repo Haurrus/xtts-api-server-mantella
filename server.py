@@ -16,8 +16,9 @@ from argparse import ArgumentParser
 from pathlib import Path
 from uuid import uuid4
 
-from tts_funcs import TTSWrapper,supported_languages,InvalidSettingsError
-from RealtimeTTS import TextToAudioStream, CoquiEngine
+from xtts_api_server.tts_funcs import TTSWrapper,supported_languages,InvalidSettingsError
+from xtts_api_server.RealtimeTTS import TextToAudioStream, CoquiEngine
+from xtts_api_server.modeldownloader import check_stream2sentence_version,install_deepspeed_based_on_python_version
 
 # Default Folders , you can change them via API
 DEVICE = os.getenv('DEVICE',"cuda")
@@ -38,6 +39,9 @@ STREAM_MODE = os.getenv("STREAM_MODE") == 'true'
 STREAM_MODE_IMPROVE = os.getenv("STREAM_MODE_IMPROVE") == 'true'
 STREAM_PLAY_SYNC = os.getenv("STREAM_PLAY_SYNC") == 'true'
 
+if(DEEPSPEED):
+  install_deepspeed_based_on_python_version()
+
 # Create an instance of the TTSWrapper class and server
 app = FastAPI()
 XTTS = TTSWrapper(OUTPUT_FOLDER,SPEAKER_FOLDER,LATENT_SPEAKER_FOLDER,MODEL_FOLDER,LOWVRAM_MODE,MODEL_SOURCE,MODEL_VERSION,DEVICE,DEEPSPEED,USE_CACHE)
@@ -49,13 +53,14 @@ MODEL_VERSION = XTTS.model_version
 # Create version string
 version_string = ""
 if MODEL_SOURCE == "api" or MODEL_VERSION == "main":
-    version_string = "lastest"
+    version_string = "latest"
 else:
     version_string = MODEL_VERSION
 
 # Load model
 if STREAM_MODE or STREAM_MODE_IMPROVE:
     # Load model for Streaming
+    check_stream2sentence_version()
 
     logger.warning("'Streaming Mode' has certain limitations, you can read about them here https://github.com/daswer123/xtts-api-server#about-streaming-mode")
 
@@ -131,6 +136,7 @@ class SynthesisRequest(BaseModel):
     text: str
     speaker_wav: Optional[str] = None
     language: str
+    accent: Optional[str] = None
     save_path: Optional[str] = None
 
 class SynthesisFileRequest(BaseModel):
@@ -305,6 +311,7 @@ async def tts_to_audio(request: SynthesisRequest, background_tasks: BackgroundTa
                 text=request.text,
                 speaker_name_or_path=request.speaker_wav,
                 language=request.language.lower(),
+                accent=request.accent,
                 file_name_or_path=request.save_path
             )
             

@@ -18,6 +18,12 @@ from uuid import uuid4
 
 from tts_funcs import TTSWrapper,supported_languages,InvalidSettingsError
 from RealtimeTTS import TextToAudioStream, CoquiEngine
+import sys
+
+# Remove the default logger to avoid conflicts
+logger.remove()
+# Add a new logger for console output, ensuring it doesn't prompt for input
+logger.add(sys.stdout, format="{time} {level} {message}", level="INFO", enqueue=True)
 
 # Default Folders , you can change them via API
 DEVICE = os.getenv('DEVICE',"cuda")
@@ -348,5 +354,27 @@ async def tts_to_file(request: SynthesisFileRequest):
         logger.error(e)
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
+@app.on_event("startup")
+async def show_disclaimer():
+    disclaimer_message = """
+    Disclaimer on AI Voice Cloning and Translations:
+
+    Before using any custom voices from a mod to generate AI voice lines or train voice models, please ask for explicit permission from the mod author. This applies to creating voice-over translations or any other modifications involving AI-generated dialogue. If permission is not granted, no voices from that mod should be used or cloned.
+
+    Base Game Voice Models:
+
+    All AI-generated voice models used in this mod are created solely from Skyrim's base game voices. No custom or modded voice assets are used without permission.
+
+    For Users and Mod Creators:
+
+    Mod Creators: If you notice your custom voice has been mistakenly included or referenced, please contact me, and I will promptly remove it.
+
+    Users: If you use any tools related to this mod for voice generation, ensure you have obtained the necessary permissions from the mod authors beforehand.
+
+    Thank you for your understanding!
+    """
+    print(disclaimer_message)
+
 if __name__ == "__main__":
-    uvicorn.run(app,host="0.0.0.0",port=8020)
+    disable_quick_edit()
+    uvicorn.run(app, host="0.0.0.0", port=8020, log_level="info", access_log=True)

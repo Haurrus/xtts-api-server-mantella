@@ -4,6 +4,7 @@ from argparse import ArgumentParser
 import os
 import configparser
 import sys
+import platform
 
 # Constants for console mode flags
 ENABLE_QUICK_EDIT_MODE = 0x0040
@@ -11,20 +12,23 @@ ENABLE_EXTENDED_FLAGS  = 0x0080
 
 def disable_quick_edit():
     """Disables Quick Edit Mode in the Windows CMD console."""
-    kernel32 = ctypes.windll.kernel32
-    hStdin = kernel32.GetStdHandle(-10)  # Get the standard input handle
-    mode = ctypes.c_uint32()
-    
-    # Get the current console mode
-    if not kernel32.GetConsoleMode(hStdin, ctypes.byref(mode)):
-        raise ctypes.WinError()
+    if platform.system() == "Windows":  # Check if the OS is Windows
+        kernel32 = ctypes.windll.kernel32
+        hStdin = kernel32.GetStdHandle(-10)  # Get the standard input handle
+        mode = ctypes.c_uint32()
+        
+        # Get the current console mode
+        if not kernel32.GetConsoleMode(hStdin, ctypes.byref(mode)):
+            raise ctypes.WinError()
 
-    # Disable Quick Edit Mode and set the mode back
-    mode.value &= ~ENABLE_QUICK_EDIT_MODE  # Unset the Quick Edit flag
-    mode.value |= ENABLE_EXTENDED_FLAGS    # Make sure extended flags are enabled
+        # Disable Quick Edit Mode and set the mode back
+        mode.value &= ~0x0040  # Unset the Quick Edit flag
+        mode.value |= 0x0080   # Ensure extended flags are enabled
 
-    if not kernel32.SetConsoleMode(hStdin, mode):
-        raise ctypes.WinError()
+        if not kernel32.SetConsoleMode(hStdin, mode):
+            raise ctypes.WinError()
+    else:
+        print("Quick Edit Mode is only relevant for Windows. Skipping...")
         
 disable_quick_edit()
 

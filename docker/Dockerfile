@@ -1,5 +1,5 @@
 # Use an official PyTorch base image
-FROM pytorch/pytorch:2.2.1-cuda12.1-cudnn8-devel
+FROM pytorch/pytorch:2.7.0-cuda12.8-cudnn9-devel
 
 # Set label for the docker image description
 LABEL description="Docker image for xtts-api-server"

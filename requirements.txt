@@ -7,11 +7,11 @@ loguru
 pydantic==2.9.2
 pydub
 python-dotenv
-torch==2.2.1
-torchaudio==2.2.1
+torch==2.7
+torchaudio==2.7
 uvicorn
 cutlet
 fugashi[unidic-lite]
-tts==0.21.3
-transformers==4.36.2
+coqui-tts==0.26.2
+transformers==4.51.3
 spacy==3.7.4

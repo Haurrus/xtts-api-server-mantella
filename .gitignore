@@ -1,5 +1,6 @@
 dist
 venv
+.venv
 speakers
 output
 test

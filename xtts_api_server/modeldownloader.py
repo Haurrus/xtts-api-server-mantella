@@ -48,7 +48,7 @@ def install_deepspeed_based_on_python_version():
 
         # Define your package links here
         py310_win = "https://github.com/daswer123/xtts-webui/releases/download/deepspeed/deepspeed-0.11.2+cuda118-cp310-cp310-win_amd64.whl"
-        py311_win = "https://github.com/daswer123/xtts-webui/releases/download/deepspeed/deepspeed-0.11.2+cuda118-cp311-cp311-win_amd64.whl"
+        py311_win = "https://github.com/art-from-the-machine/xtts-api-server-mantella/releases/download/deepspeed/deepspeed-0.17.2+cuda128-cp311-cp311-win_amd64.whl"
 
         # Use generic pip install deepspeed for Linux or custom wheels for Windows.
         deepspeed_link = None
@@ -62,10 +62,10 @@ def install_deepspeed_based_on_python_version():
 
             else:
                 logger.error("Unsupported Python version on Windows.")
-                deepspeed_link = 'deepspeed==0.15.2'
+                deepspeed_link = 'deepspeed==0.17.1'
 
         else: # Assuming Linux/MacOS otherwise (add specific checks if necessary)
-             deepspeed_link = 'deepspeed==0.15.2'
+             deepspeed_link = 'deepspeed==0.17.1'
 
         if deepspeed_link:
              logger.info("Installing DeepSpeed...")
@@ -94,20 +94,6 @@ def upgrade_stream2sentence_package():
         logger.error(f"An error occurred while upgrading Stream2sentence: {e}")
         logger.info("Stream2sentence installing the new version manually")
         logger.info("pip install --upgrade stream2sentence")
-
-def check_tts_version():
-    try:
-        tts_version = metadata.version("tts")
-        # print(f"[XTTS] TTS version: {tts_version}")
-
-        if version.parse(tts_version) != version.parse("0.21.3"):
-            upgrade_tts_package()
-            # print("[XTTS] TTS version is too old. Please upgrade to version 0.21.2 or later.")
-            # print("[XTTS] pip install --upgrade tts")
-        # else:
-            # logger.info("TTS version is up to date.")
-    except metadata.PackageNotFoundError:
-        print("TTS is not installed.")
 
 
 def check_stream2sentence_version():
